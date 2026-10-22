@@ -1,80 +1,16 @@
-# macOS / Windows metadata
-.DS_Store
-Thumbs.db
-
-# Logs and temporary files
-*.log
-*.tmp
-*.bak
-*.swp
-
-# Dependencies and package managers
-node_modules/
-vcpkg_installed/
-
-# Build outputs
-target/
-dist/
-out/
 build/
-Build/
-build-*/
-
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-
-# Test output & cache
-Testing/
-.cache/
-
-# Environment secrets (never commit credentials)
-.env
-.env.*
-!.env.example
-
-# IDE settings
-.idea/
-.vscode/
-*.iml
-
-# Compiled object files
-*.d
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled headers
-*.gch
-*.pch
-
-# Linker / debugger files
-*.ilk
-*.pdb
-*.dwo
-
-# Compiled dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
+cmake-build-*/
 *.exe
 *.out
-*.app
+*.o
+*.obj
+*.dll
+*.so
+*.a
+*.lib
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
