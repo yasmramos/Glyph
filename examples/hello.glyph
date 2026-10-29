@@ -1,0 +1,5 @@
+-- Glyph sample: milestone 1 & 2 coverage.
+print("Hello from Glyph!")
+local answer = 6 * 7
+print(answer)          -- expect: 42
+print(2 ^ 0.5)         -- fractional numbers print with %.14g
