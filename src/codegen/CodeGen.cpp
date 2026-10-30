@@ -162,11 +162,12 @@ public:
         if (it == locals_.end()) {
             throw CodeGenError(e.loc(), "undefined variable '" + e.name() + "'");
         }
-        // Locals are stored as alloca slots; load from them here.
+        // Locals are stored as alloca slots (double*); load from them here.
+        // LLVM 23 uses opaque pointers, so the loaded type is written out
+        // explicitly instead of being derived from the pointer type.
         llvm::Value *slot = it->second;
-        auto *ptrTy = static_cast<llvm::PointerType *>(slot->getType());
-        auto *loaded = mb_.builder().CreateLoad(ptrTy->getElementType(), slot,
-                                                e.name());
+        auto *loaded =
+            mb_.builder().CreateLoad(mb_.doubleTy(), slot, e.name());
         result_ = {Value::Kind::Number, loaded};
     }
 

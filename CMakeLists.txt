@@ -58,12 +58,34 @@ llvm_map_components_to_libnames(LLVM_LIBS
   core support irreader passes nativecodegen target mc x86dispatcher
   x86info asmparser)
 
-# ANTLR C++ runtime: system package (Config verified in CI). The generated
-# sources require 4.10+ APIs; the pinned system package provides them.
-find_path(ANTLR4_INCLUDE_DIR antlr4-runtime.h PATHS /usr/include/antlr4-runtime)
-find_library(ANTLR4_RUNTIME_LIB antlr4-runtime)
-if(NOT ANTLR4_INCLUDE_DIR OR NOT ANTLR4_RUNTIME_LIB)
-  message(FATAL_ERROR "ANTLR4 C++ runtime not found (install libantlr4-runtime-dev)")
+# ANTLR C++ runtime. Two modes:
+#  - System package (Linux sandbox/dev): headers under /usr/include/antlr4-runtime.
+#  - Bundled source build (Windows CI): the official antlr4-cpp-runtime-src
+#    zip is extracted under third_party/antlr4 and configured as a subproject;
+#    the generated parser sources are compiled against it.
+option(GLYPH_USE_BUNDLED_ANTLR "Build the ANTLR C++ runtime from third_party" OFF)
+
+if(GLYPH_USE_BUNDLED_ANTLR)
+  set(ANTLR4_SRC_DIR "${CMAKE_SOURCE_DIR}/third_party/antlr4/runtime/Cpp/runtime")
+  if(NOT EXISTS "${ANTLR4_SRC_DIR}/src/antlr4-runtime.cpp")
+    message(FATAL_ERROR "Bundled ANTLR runtime sources not found at ${ANTLR4_SRC_DIR}")
+  endif()
+  set(ANTLR_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(ANTLR_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
+  add_subdirectory("${ANTLR4_SRC_DIR}" "${CMAKE_BINARY_DIR}/antlr4_runtime" EXCLUDE_FROM_ALL)
+  # Expose the runtime headers under a flat include dir so both modes use the
+  # same `#include "antlr4-runtime.h"` style in generated sources.
+  target_include_directories(antlr4_static PUBLIC "${ANTLR4_SRC_DIR}/include")
+  set(ANTLR4_INCLUDE_DIR "${ANTLR4_SRC_DIR}/include")
+  set(ANTLR4_RUNTIME_LIB antlr4_static)
+else()
+  find_path(ANTLR4_INCLUDE_DIR antlr4-runtime.h
+            PATHS /usr/include/antlr4-runtime /usr/local/include/antlr4-runtime)
+  find_library(ANTLR4_RUNTIME_LIB antlr4-runtime
+               PATHS /usr/local/lib /usr/lib/x86_64-linux-gnu)
+  if(NOT ANTLR4_INCLUDE_DIR OR NOT ANTLR4_RUNTIME_LIB)
+    message(FATAL_ERROR "ANTLR4 C++ runtime not found (install libantlr4-runtime-dev)")
+  endif()
 endif()
 
 # The sandbox ships runtime headers that do not include <any> themselves,

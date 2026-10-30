@@ -1,19 +1,44 @@
+# Build directories
 build/
+build-*/
 cmake-build-*/
-*.exe
-*.out
+out/
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+*.cmake.tmp
+
+# Object files and libraries
 *.o
 *.obj
-*.dll
-*.so
 *.a
 *.lib
-.vscode/
+*.so
+*.dll
+*.dylib
+
+# Executables
+glyphc
+glyphc.exe
+*.exe
+
+# Compiled LLVM artifacts
+*.ll
+*.bc
+*.o.ll
+
+# IDE
 .idea/
-*.swp
-*.swo
+.vscode/
+*.user
+
+# OS
 .DS_Store
 Thumbs.db
 
-# Local credentials (never commit tokens)
-.git-credentials
+# Python
+__pycache__/
+*.pyc
