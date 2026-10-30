@@ -1,8 +1,16 @@
 // glyphc — the Glyph compiler driver.
 // Subcommands: build, run, repl (milestone 6+). Flags: -o, -O, --emit-ir,
 // --emit-asm, --ast.
+#ifdef _WIN32
+#include <process.h>
+#include <windows.h>
+#define GLYPH_GETPID _getpid
+#else
 #include <sys/wait.h>
 #include <unistd.h>
+#define GLYPH_GETPID ::getpid
+#endif
+
 
 #include <algorithm>
 #include <cstring>
@@ -58,6 +66,44 @@ void usage() {
 }
 
 int spawn(const std::vector<std::string> &argv) {
+#ifdef _WIN32
+    // Windows: no fork/exec; use CreateProcess with an explicitly quoted
+    // command line (MSVC's cl.exe needs quoting for paths with spaces, and
+    // _spawnv's built-in quoting is unreliable). No shell is involved, so
+    // there is no injection surface.
+    auto quote = [](const std::string &s) {
+        if (!s.empty() && s.find_first_of(" \t\"") == std::string::npos)
+            return s;
+        std::string out = "\"";
+        for (char c : s) {
+            if (c == '"') out += "\\\"";
+            else out += c;
+        }
+        out += "\"";
+        return out;
+    };
+    std::string cmdline;
+    for (size_t i = 0; i < argv.size(); ++i) {
+        if (i) cmdline += ' ';
+        cmdline += quote(argv[i]);
+    }
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::vector<char> mutableCmd(cmdline.begin(), cmdline.end());
+    mutableCmd.push_back('\0');
+    if (!CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, TRUE,
+                        0, nullptr, nullptr, &si, &pi)) {
+        std::cerr << "glyphc: failed to launch '" << argv[0] << "'\n";
+        return 1;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return static_cast<int>(code);
+#else
     // fork/execvp instead of system(): no shell, so no injection surface.
     std::vector<char *> raw;
     raw.reserve(argv.size() + 1);
@@ -77,6 +123,7 @@ int spawn(const std::vector<std::string> &argv) {
     waitpid(pid, &status, 0);
     if (WIFEXITED(status)) return WEXITSTATUS(status);
     return 1;
+#endif
 }
 
 std::string readFile(const std::string &path) {
@@ -230,11 +277,23 @@ int cmdCompile(const Options &opts, bool thenRun) {
     std::string objPath = opts.output.empty()
                               ? (std::filesystem::temp_directory_path() /
                                  ("glyph-" +
-                                  std::to_string(::getpid()) + ".o"))
+                                  std::to_string(GLYPH_GETPID()) + ".o"))
                                     .string()
                               : opts.output + ".o";
     if (!emitObject(*module, objPath)) return 2;
 
+#ifdef _WIN32
+    // Windows: link with the MSVC toolchain (cl.exe must be on PATH, e.g.
+    // inside a "Developer Prompt"). LLVM emits COFF objects compatible with
+    // link.exe; no -lm equivalent is needed for the runtime's math calls.
+    std::string exePath = opts.output.empty() ? "a.exe" : opts.output;
+    std::vector<std::string> link = {"cl.exe", "/nologo", "/Fe:" + exePath,
+                                     objPath};
+    if (auto rt = glyph::runtime::locateRuntimeObject(); !rt.empty()) {
+        link.push_back(rt);
+    }
+    int rc = spawn(link);
+#else
     std::string exePath = opts.output.empty() ? "a.out" : opts.output;
     std::vector<std::string> cc = {"cc", objPath};
     if (auto rt = glyph::runtime::locateRuntimeObject(); !rt.empty()) {
@@ -244,6 +303,7 @@ int cmdCompile(const Options &opts, bool thenRun) {
     cc.push_back(exePath);
     cc.push_back("-lm");
     int rc = spawn(cc);
+#endif
     if (!opts.keepTemps && opts.output.empty()) {
         std::filesystem::remove(objPath);
     }

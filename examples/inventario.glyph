@@ -1,0 +1,349 @@
+// ============================================================
+// inventario.glyph
+// Inventory system with structs, classes, inheritance and interfaces.
+// Reference program for the Glyph Draft 0.2 grammar.
+// ============================================================
+
+module inventario
+
+import std.io
+import std.math
+import std.string
+
+// ---------- Compile-time constants ----------
+
+const MAX_STOCK = 1000
+const TASA_IVA = 0.21
+const MONEDA = "EUR"
+
+// ---------- Structs (value types) ----------
+
+struct Dinero {
+    cantidad: double,
+    moneda: str,
+}
+
+struct Dimensiones {
+    ancho: double,
+    alto: double,
+    fondo: double,
+}
+
+struct Producto {
+    id: int,
+    nombre: str,
+    precio: Dinero,
+    var stock: int,
+    dimensiones: Dimensiones,
+}
+
+// ---------- Interfaces ----------
+
+interface Vendible {
+    fn precio_final() -> Dinero
+    fn disponible() -> bool
+    fn descripcion() -> str
+}
+
+interface Auditable {
+    fn registrar_cambio(accion: str)
+}
+
+// ---------- Base class ----------
+
+class Item implements Vendible, Auditable {
+    const id: int
+    const nombre: str
+    const precio_base: Dinero
+    var stock: int
+
+    fn new(id: int, nombre: str, precio: double, stock_inicial: int) -> Item {
+        return Item {
+            id: id,
+            nombre: nombre,
+            precio_base: Dinero { cantidad: precio, moneda: MONEDA },
+            stock: stock_inicial,
+        }
+    }
+
+    fn precio_final() -> Dinero {
+        let con_iva = precio_base.cantidad * (1.0 + TASA_IVA)
+        return Dinero { cantidad: con_iva, moneda: precio_base.moneda }
+    }
+
+    fn disponible() -> bool {
+        return stock > 0
+    }
+
+    fn descripcion() -> str {
+        return nombre + " (#" + id as str + ")"
+    }
+
+    fn registrar_cambio(accion: str) {
+        io.println("[AUDIT] " + descripcion() + ": " + accion)
+    }
+
+    fn reponer(cantidad: int) -> !int {
+        if cantidad <= 0 {
+            return err("cantidad debe ser positiva")
+        }
+        if stock + cantidad > MAX_STOCK {
+            return err("excede MAX_STOCK (" + MAX_STOCK as str + ")")
+        }
+        stock += cantidad
+        registrar_cambio("reponer " + cantidad as str)
+        return ok(stock)
+    }
+
+    fn vender(cantidad: int) -> !Dinero {
+        if cantidad <= 0 {
+            return err("cantidad invalida")
+        }
+        if cantidad > stock {
+            return err("stock insuficiente: " + stock as str)
+        }
+        stock -= cantidad
+        registrar_cambio("vender " + cantidad as str)
+        let total = Dinero {
+            cantidad: precio_final().cantidad * cantidad as double,
+            moneda: MONEDA,
+        }
+        return ok(total)
+    }
+}
+
+// ---------- Subclasses with inheritance ----------
+
+class Libro extends Item {
+    const autor: str
+    const isbn: str
+
+    fn new(id: int, nombre: str, precio: double, stock: int, autor: str, isbn: str) -> Libro {
+        return Libro {
+            id: id,
+            nombre: nombre,
+            precio_base: Dinero { cantidad: precio, moneda: MONEDA },
+            stock: stock,
+            autor: autor,
+            isbn: isbn,
+        }
+    }
+
+    override fn descripcion() -> str {
+        return nombre + " - " + autor + " (ISBN: " + isbn + ")"
+    }
+
+    override fn precio_final() -> Dinero {
+        // Books get a reduced VAT rate (4%)
+        let con_iva = precio_base.cantidad * 1.04
+        return Dinero { cantidad: con_iva, moneda: precio_base.moneda }
+    }
+}
+
+class Electronico extends Item {
+    const garantia_meses: int
+
+    fn new(id: int, nombre: str, precio: double, stock: int, garantia: int) -> Electronico {
+        return Electronico {
+            id: id,
+            nombre: nombre,
+            precio_base: Dinero { cantidad: precio, moneda: MONEDA },
+            stock: stock,
+            garantia_meses: garantia,
+        }
+    }
+
+    override fn descripcion() -> str {
+        return nombre + " (garantia " + garantia_meses as str + " meses)"
+    }
+
+    fn extender_garantia(var self, meses: int) {
+        if meses <= 0 {
+            io.println("meses invalidos")
+            return
+        }
+        self.garantia_meses += meses
+        registrar_cambio("garantia extendida +" + meses as str)
+    }
+}
+
+// ---------- Generics ----------
+
+struct Resultado<T> {
+    valor: ?T,
+    error: ?str,
+}
+
+fn primero<T>(lista: [T]) -> ?T {
+    if lista.len == 0 {
+        return none
+    }
+    return some(lista[0])
+}
+
+fn mapear<T, U>(lista: [T], f: fn(T) -> U) -> [U] {
+    var resultado: [U] = []
+    for x in lista {
+        resultado.push(f(x))
+    }
+    return resultado
+}
+
+// ---------- Store logic ----------
+
+class Tienda {
+    const nombre: str
+    var items: [Item]
+    var ventas_totales: double
+
+    fn new(nombre: str) -> Tienda {
+        return Tienda {
+            nombre: nombre,
+            items: [],
+            ventas_totales: 0.0,
+        }
+    }
+
+    fn agregar(var self, item: Item) {
+        self.items.push(item)
+    }
+
+    fn buscar(self, id: int) -> ?Item {
+        for item in self.items {
+            if item.id == id {
+                return some(item)
+            }
+        }
+        return none
+    }
+
+    fn vender(var self, id: int, cantidad: int) -> !Dinero {
+        match self.buscar(id) {
+            none => return err("producto " + id as str + " no encontrado"),
+            some(item) => {
+                let resultado = item.vender(cantidad)?
+                self.ventas_totales += resultado.cantidad
+                return ok(resultado)
+            }
+        }
+    }
+
+    fn inventario_bajo(self, umbral: int) -> [Item] {
+        var bajos: [Item] = []
+        for item in self.items {
+            if item.stock < umbral {
+                bajos.push(item)
+            }
+        }
+        return bajos
+    }
+
+    fn valor_total(self) -> Dinero {
+        var total = 0.0
+        for item in self.items {
+            total += item.precio_final().cantidad * item.stock as double
+        }
+        return Dinero { cantidad: total, moneda: MONEDA }
+    }
+
+    fn resumen(self) {
+        io.println("=== " + nombre + " ===")
+        io.println("Items: " + items.len as str)
+        io.println("Valor inventario: " + valor_total().cantidad as str + " " + MONEDA)
+        io.println("Ventas totales: " + ventas_totales as str + " " + MONEDA)
+
+        let bajos = inventario_bajo(5)
+        if bajos.len > 0 {
+            io.println("Stock bajo:")
+            for item in bajos {
+                io.println("  - " + item.descripcion() + " (" + item.stock as str + ")")
+            }
+        }
+    }
+}
+
+// ---------- Helper functions with pattern matching ----------
+
+fn formatear_dinero(d: Dinero) -> str {
+    let entero = d.cantidad as long
+    let decimales = ((d.cantidad - entero as double) * 100.0) as int
+    return entero as str + "." + pad_izquierda(decimales as str, 2, "0") + " " + d.moneda
+}
+
+fn pad_izquierda(s: str, n: int, relleno: str) -> str {
+    var resultado = s
+    while resultado.len < n {
+        resultado = relleno + resultado
+    }
+    return resultado
+}
+
+fn clasificar_stock(stock: int) -> str {
+    match stock {
+        0 => "agotado",
+        n if n < 5 => "critico",
+        n if n < 20 => "bajo",
+        _ => "normal",
+    }
+}
+
+// ---------- main ----------
+
+fn main() -> int {
+    let tienda = Tienda::new("Libreria Central")
+
+    // Create products
+    let libro1 = Libro::new(1, "El Quijote", 25.0, 10, "Cervantes", "978-84-376-0494-7")
+    let libro2 = Libro::new(2, "Cien Anos de Soledad", 30.0, 3, "Garcia Marquez", "978-84-397-2188-9")
+    let laptop = Electronico::new(3, "Laptop Pro", 1200.0, 7, 24)
+    let mouse = Electronico::new(4, "Mouse Inalambrico", 25.0, 2, 12)
+
+    tienda.agregar(libro1)
+    tienda.agregar(libro2)
+    tienda.agregar(laptop)
+    tienda.agregar(mouse)
+
+    // Show inventory
+    tienda.resumen()
+    io.println("")
+
+    // Sell
+    match tienda.vender(1, 2) {
+        ok(total) => io.println("Venta: " + formatear_dinero(total)),
+        err(msg) => io.println("Error: " + msg),
+    }
+
+    match tienda.vender(3, 10) {
+        ok(total) => io.println("Venta: " + formatear_dinero(total)),
+        err(msg) => io.println("Error: " + msg),
+    }
+
+    // Restock
+    match mouse.reponer(20) {
+        ok(nuevo_stock) => io.println("Mouse repuesto, stock: " + nuevo_stock as str),
+        err(msg) => io.println("Error: " + msg),
+    }
+
+    // Extend warranty (mutating-self method)
+    laptop.extender_garantia(12)
+
+    io.println("")
+    tienda.resumen()
+
+    // Generics
+    let numeros = [1, 2, 3, 4, 5]
+    let dobles = mapear(numeros, fn(x: int) -> int { return x * 2 })
+    io.println("Dobles: " + dobles as str)
+
+    match primero(dobles) {
+        some(v) => io.println("Primero: " + v as str),
+        none => io.println("Lista vacia"),
+    }
+
+    // Stock classification
+    for item in tienda.items {
+        io.println(item.descripcion() + " -> " + clasificar_stock(item.stock))
+    }
+
+    return 0
+}
