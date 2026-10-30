@@ -3,9 +3,9 @@ project(glyph LANGUAGES C CXX VERSION 0.1.0)
 
 # ---------------------------------------------------------------------------
 # Toolchain pins (see checklist §1): one LLVM, one ANTLR version everywhere.
-# This sandbox has LLVM 14 + ANTLR runtime 4.9 installed; CI uses the same
+# This sandbox has LLVM 23 + ANTLR runtime installed; CI uses the same
 # versions so local and pipeline builds link against identical libraries.
-set(GLYPH_LLVM_VERSION "14" CACHE STRING "LLVM major version to build against")
+set(GLYPH_LLVM_VERSION "23" CACHE STRING "LLVM major version to build against")
 set(GLYPH_ANTLR_VERSION "4.13.1" CACHE STRING "ANTLR tool version (jar)")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,7 +16,37 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
 
-find_package(LLVM ${GLYPH_LLVM_VERSION} CONFIG REQUIRED)
+# On multi-version installs (e.g. apt.llvm.org packages under /usr/lib/llvm-N)
+# CMake does not know where LLVM's Config files live, so point it at the
+# version-prefixed prefix before the search.
+# LLVM's Config version check is exact-match, so pass the full version when
+# we already know it (e.g. llvm-config --version reports "23.1.5").
+set(GLYPH_LLVM_FIND_VERSION "${GLYPH_LLVM_VERSION}")
+if(NOT LLVM_DIR)
+  find_file(GLYPH_LLVM_CONFIG_EXECUTABLE
+    NAMES llvm-config-${GLYPH_LLVM_VERSION} llvm-config
+    PATHS /usr/lib/llvm-${GLYPH_LLVM_VERSION}/bin /usr/bin /usr/local/bin)
+  if(GLYPH_LLVM_CONFIG_EXECUTABLE)
+    execute_process(COMMAND "${GLYPH_LLVM_CONFIG_EXECUTABLE}" --cmakedir
+      OUTPUT_VARIABLE GLYPH_LLVM_CMAKE_DIR
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND "${GLYPH_LLVM_CONFIG_EXECUTABLE}" --version
+      OUTPUT_VARIABLE GLYPH_LLVM_FULL_VERSION
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    cmake_path(GET GLYPH_LLVM_CMAKE_DIR PARENT_PATH GLYPH_LLVM_PREFIX)
+    set(LLVM_DIR "${GLYPH_LLVM_CMAKE_DIR}" CACHE PATH "LLVM CMake config dir" FORCE)
+    list(PREPEND CMAKE_PREFIX_PATH "${GLYPH_LLVM_PREFIX}")
+    if(GLYPH_LLVM_FULL_VERSION)
+      set(GLYPH_LLVM_FIND_VERSION "${GLYPH_LLVM_FULL_VERSION}")
+    endif()
+  endif()
+endif()
+
+find_package(LLVM "${GLYPH_LLVM_FIND_VERSION}" CONFIG REQUIRED)
+if(NOT LLVM_PACKAGE_VERSION VERSION_GREATER_EQUAL GLYPH_LLVM_VERSION)
+  message(FATAL_ERROR "Found LLVM ${LLVM_PACKAGE_VERSION}, but the project pins "
+                      "LLVM ${GLYPH_LLVM_VERSION}")
+endif()
 message(STATUS "Using LLVM ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
